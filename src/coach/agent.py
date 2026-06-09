@@ -21,32 +21,41 @@ class RuleBasedCoach:
     """API 키가 없을 때 쓰는 간단한 로컬 코치. detected_issues 기반."""
 
     def coach(self, summary: Dict) -> Coaching:
-        issues = summary.get("detected_issues", [])
+        is_set = summary.get("event") == "set"
+        # 세트 요약은 recurring_issues, 그 외(렙/유지)는 detected_issues 사용
+        issues = (summary.get("recurring_issues") if is_set
+                  else summary.get("detected_issues")) or []
         majors = [i for i in issues if i.get("severity") == "major"]
         minors = [i for i in issues if i.get("severity") == "minor"]
 
         if majors:
-            severity = "major"
-            score = 45
+            severity, score = "major", 45
         elif minors:
-            severity = "minor"
-            score = 70
+            severity, score = "minor", 70
         else:
-            severity = "good"
-            score = 92
+            severity, score = "good", 92
 
         cues = [i["message_ko"] for i in (majors + minors)][:3]
         if not cues:
             cues = ["좋은 자세입니다. 이대로 유지하세요."]
 
-        headline = "교정이 필요해요" if majors else (
-            "거의 완벽해요" if severity == "good" else "조금만 다듬어요")
+        if is_set:
+            total = summary.get("total_reps", summary.get("total_holds", 0))
+            headline = f"{total}개 완료 · " + (
+                "교정 포인트 있어요" if majors else
+                "좋은 세트였어요" if severity == "good" else "조금만 다듬어요")
+            encouragement = "다음 세트도 화이팅!"
+        else:
+            headline = "교정이 필요해요" if majors else (
+                "거의 완벽해요" if severity == "good" else "조금만 다듬어요")
+            encouragement = "잘하고 있어요, 계속 가봅시다!"
+
         return Coaching(
             form_score=score,
             severity=severity,
             headline=headline,
             cues=cues,
-            encouragement="잘하고 있어요, 계속 가봅시다!",
+            encouragement=encouragement,
         )
 
 

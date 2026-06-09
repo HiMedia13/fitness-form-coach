@@ -105,6 +105,13 @@ class Exercise:
                 self._rep_min = float("inf")
         return result
 
+    def reset_counts(self) -> None:
+        """세트 종료 후 다음 세트를 위해 카운터/상태를 초기화한다."""
+        self.rep_count = 0
+        self._phase = "up"
+        self._rep_start_t = None
+        self._rep_min = float("inf")
+
     @property
     def last_metrics(self) -> Dict[str, float]:
         return self._last_metrics
@@ -122,6 +129,11 @@ class IsometricExercise(Exercise):
     def __init__(self) -> None:
         super().__init__()
         self._hold_start_t: Optional[float] = None
+        self.hold_duration = 0.0
+
+    def reset_counts(self) -> None:
+        super().reset_counts()
+        self._hold_start_t = None
         self.hold_duration = 0.0
 
     def is_in_position(self, metrics: Dict[str, float]) -> bool:

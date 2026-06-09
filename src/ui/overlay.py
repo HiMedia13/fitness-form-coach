@@ -45,6 +45,7 @@ class Overlay:
         hold_s: Optional[float],
         coaching,            # Coaching | None
         busy: bool,
+        set_index: int = 1,
     ):
         """frame 위에 정보 패널을 그려 반환한다."""
         # PIL 로 변환 (한글 렌더링)
@@ -54,7 +55,7 @@ class Overlay:
 
         # 상단 상태 바
         draw.rectangle([0, 0, w, 70], fill=(0, 0, 0, 150))
-        status = f"{exercise_ko}"
+        status = f"세트 {set_index}  ·  {exercise_ko}"
         if hold_s is not None:
             status += f"   유지 {hold_s:.0f}s"
         else:

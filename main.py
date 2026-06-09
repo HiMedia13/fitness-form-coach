@@ -9,7 +9,7 @@
 
 실행 중 키:
     1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 / 5 런지 / 6 오버헤드프레스 로 전환
-    space 일시정지(영상) / q 또는 ESC : 종료
+    s 세트 종료(종합 코칭) / space 일시정지(영상) / q 또는 ESC : 종료
 """
 import argparse
 import time
@@ -21,6 +21,7 @@ from src.coach.agent import AsyncCoach, build_coach
 from src.exercises import registry
 from src.exercises.base import HoldResult, RepResult
 from src.pose.estimator import PoseEstimator
+from src.session import SetTracker
 from src.ui.overlay import Overlay
 
 _HOTKEYS = {ord("1"): "squat", ord("2"): "pushup",
@@ -55,6 +56,18 @@ def _hold_summary(exercise, result: HoldResult):
     }
 
 
+def _finalize_set(set_tracker, exercise, async_coach, reason=""):
+    """현재 세트를 마감해 종합 코칭을 요청하고 카운터를 초기화한다."""
+    summary = set_tracker.finish(exercise.name)
+    if summary is None:
+        return
+    async_coach.submit(summary)
+    n = summary.get("total_reps", summary.get("total_holds", 0))
+    tag = f" ({reason})" if reason else ""
+    print(f"세트 {summary['set_index']} 종료{tag}: {n}개 → 종합 코칭 요청")
+    exercise.reset_counts()
+
+
 def main():
     parser = argparse.ArgumentParser(description="운동 자세 코칭 에이전트")
     parser.add_argument("-e", "--exercise", default="squat",
@@ -70,6 +83,7 @@ def main():
     estimator = PoseEstimator()
     overlay = Overlay()
     async_coach = AsyncCoach(build_coach())
+    set_tracker = SetTracker()
 
     is_video = args.video is not None
     source = args.video if is_video else args.camera
@@ -88,8 +102,8 @@ def main():
 
     src_label = f"영상 {args.video}" if is_video else f"웹캠 {args.camera}"
     print(f"코칭 시작: {exercise.name_ko}  ({src_label}, 모델: {config.COACH_MODEL})")
-    print("키: 1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 / "
-          "5 런지 / 6 오버헤드프레스 / q 종료")
+    print("키: 1~6 운동 전환 / s 세트 종료(종합 코칭) / "
+          "space 일시정지 / q 종료")
 
     window = "FitCoach - 자세 코칭"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
@@ -120,8 +134,14 @@ def main():
                     result = exercise.update(landmarks, t)
                     if isinstance(result, RepResult):
                         async_coach.submit(_rep_summary(exercise, result))
+                        set_tracker.add_rep(result, t)
                     elif isinstance(result, HoldResult):
                         async_coach.submit(_hold_summary(exercise, result))
+                        set_tracker.add_hold(result, t)
+
+                # 휴식(무동작) 감지 시 세트 자동 종료 → 종합 코칭
+                if set_tracker.should_auto_finish(t):
+                    _finalize_set(set_tracker, exercise, async_coach, "휴식 감지")
 
                 hold_s = exercise.hold_duration if exercise.mode == "hold" else None
                 display = overlay.render(
@@ -132,6 +152,7 @@ def main():
                     hold_s=hold_s,
                     coaching=async_coach.latest,
                     busy=async_coach.busy,
+                    set_index=set_tracker.set_index,
                 )
                 cv2.imshow(window, display)
 
@@ -140,15 +161,19 @@ def main():
                 break
             if key == ord(" ") and is_video:
                 paused = not paused
+            if key == ord("s"):
+                _finalize_set(set_tracker, exercise, async_coach, "수동")
             if key in _HOTKEYS:
                 name = _HOTKEYS[key]
                 if name != exercise.name:
+                    # 운동 전환 전 현재 세트 마감
+                    _finalize_set(set_tracker, exercise, async_coach, "운동 전환")
                     exercise = registry.create(name)
                     print(f"운동 전환: {exercise.name_ko}")
     finally:
-        unit = "회" if exercise.mode == "rep" else "초(마지막 유지)"
-        total = exercise.rep_count if exercise.mode == "rep" else exercise.hold_duration
-        print(f"종료: {exercise.name_ko} {total} {unit}")
+        # 종료 전 남은 세트 마감
+        _finalize_set(set_tracker, exercise, async_coach, "종료")
+        print(f"종료: {exercise.name_ko}")
         async_coach.stop()
         estimator.close()
         cap.release()
