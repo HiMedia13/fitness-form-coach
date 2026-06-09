@@ -148,6 +148,9 @@ detected_issues 는 참고용 힌트일 뿐입니다. 측정값을 직접 해석
 - avg_tempo_s: 평균 렙 템포.
 - recurring_issues: [{code, message_ko, severity, count}] 세트 내 반복된 이슈와 빈도.
 - (플랭크 등) total_holds, total_hold_s, longest_hold_s: 유지 횟수/총 시간/최장 시간.
+- detected_exercise / detection_confidence: 포즈로 자동 인식한 운동과 신뢰도(0~1).
+  exercise 와 다르면 카운팅에 쓴 운동과 실제 동작이 다를 수 있다는 뜻이니, 신뢰도가
+  높을 때는 detected_exercise 기준으로 코칭하고 그 점을 한 줄 알려주세요.
 
 세트 코칭은 개별 렙이 아니라 세트 전체 경향에 집중합니다:
 1. count 가 높은 이슈를 다음 세트의 1순위 교정 포인트로 제시합니다.

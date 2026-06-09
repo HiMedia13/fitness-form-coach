@@ -46,6 +46,7 @@ class Overlay:
         coaching,            # Coaching | None
         busy: bool,
         set_index: int = 1,
+        auto_on: bool = True,
     ):
         """frame 위에 정보 패널을 그려 반환한다."""
         # PIL 로 변환 (한글 렌더링)
@@ -61,6 +62,9 @@ class Overlay:
         else:
             status += f"   {rep_count} 회   [{phase}]"
         draw.text((16, 16), status, font=self.font_lg, fill=(255, 255, 255))
+        auto_tag = "AUTO" if auto_on else "수동"
+        auto_col = (120, 230, 120) if auto_on else (180, 180, 180)
+        draw.text((w - 220, 24), auto_tag, font=self.font_sm, fill=auto_col)
         if busy:
             draw.text((w - 150, 22), "분석 중…", font=self.font_md,
                       fill=(255, 220, 120))

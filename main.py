@@ -9,7 +9,7 @@
 
 실행 중 키:
     1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 / 5 런지 / 6 오버헤드프레스 로 전환
-    s 세트 종료(종합 코칭) / space 일시정지(영상) / q 또는 ESC : 종료
+    s 세트 종료(종합 코칭) / a 자동 인식 토글 / space 일시정지(영상) / q 또는 ESC : 종료
 """
 import argparse
 import time
@@ -21,6 +21,7 @@ from src.coach.agent import AsyncCoach, build_coach
 from src.exercises import registry
 from src.exercises.base import HoldResult, RepResult
 from src.pose.estimator import PoseEstimator
+from src.recognition import AUTO_SWITCH_CONFIDENCE, ExerciseRecognizer
 from src.session import SetTracker
 from src.ui.overlay import Overlay
 
@@ -56,16 +57,35 @@ def _hold_summary(exercise, result: HoldResult):
     }
 
 
-def _finalize_set(set_tracker, exercise, async_coach, reason=""):
-    """현재 세트를 마감해 종합 코칭을 요청하고 카운터를 초기화한다."""
+def _finalize_set(set_tracker, exercise, async_coach, recognizer,
+                  auto_switch=False, reason=""):
+    """현재 세트를 마감해 종합 코칭을 요청하고 카운터를 초기화한다.
+
+    세트 동안 누적한 포즈 특징으로 운동을 자동 인식해 요약에 첨부하고, auto_switch 면
+    충분히 확신할 때 다음 세트용 운동으로 전환한다. (전환된) 운동 객체를 반환한다.
+    """
     summary = set_tracker.finish(exercise.name)
+    name, conf, _ = recognizer.predict()
+    recognizer.reset()
     if summary is None:
-        return
+        return exercise
+
+    if name:
+        summary["detected_exercise"] = name
+        summary["detection_confidence"] = round(conf, 2)
     async_coach.submit(summary)
     n = summary.get("total_reps", summary.get("total_holds", 0))
     tag = f" ({reason})" if reason else ""
     print(f"세트 {summary['set_index']} 종료{tag}: {n}개 → 종합 코칭 요청")
     exercise.reset_counts()
+
+    if (auto_switch and name and conf >= AUTO_SWITCH_CONFIDENCE
+            and name != exercise.name):
+        new_ex = registry.create(name)
+        print(f"운동 자동 인식: {exercise.name_ko} → {new_ex.name_ko} "
+              f"(신뢰도 {conf:.0%})")
+        return new_ex
+    return exercise
 
 
 def main():
@@ -77,6 +97,9 @@ def main():
                         help="웹캠 장치 인덱스 (--video 미지정 시)")
     parser.add_argument("-v", "--video", default=None,
                         help="분석할 영상 파일 경로 (지정 시 웹캠 대신 영상 분석)")
+    parser.add_argument("--auto", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="세트 종료 시 운동 자동 인식/전환 (기본 켜짐, 끄려면 --no-auto)")
     args = parser.parse_args()
 
     exercise = registry.create(args.exercise)
@@ -84,6 +107,8 @@ def main():
     overlay = Overlay()
     async_coach = AsyncCoach(build_coach())
     set_tracker = SetTracker()
+    recognizer = ExerciseRecognizer()
+    auto_on = args.auto
 
     is_video = args.video is not None
     source = args.video if is_video else args.camera
@@ -102,7 +127,8 @@ def main():
 
     src_label = f"영상 {args.video}" if is_video else f"웹캠 {args.camera}"
     print(f"코칭 시작: {exercise.name_ko}  ({src_label}, 모델: {config.COACH_MODEL})")
-    print("키: 1~6 운동 전환 / s 세트 종료(종합 코칭) / "
+    print(f"운동 자동 인식: {'ON' if auto_on else 'OFF'}")
+    print("키: 1~6 운동 전환 / s 세트 종료 / a 자동인식 토글 / "
           "space 일시정지 / q 종료")
 
     window = "FitCoach - 자세 코칭"
@@ -131,6 +157,7 @@ def main():
                 landmarks = estimator.process(frame)
                 if landmarks is not None:
                     estimator.draw_skeleton(frame)
+                    recognizer.feed(landmarks)  # 운동 자동 인식용 특징 누적
                     result = exercise.update(landmarks, t)
                     if isinstance(result, RepResult):
                         async_coach.submit(_rep_summary(exercise, result))
@@ -139,9 +166,11 @@ def main():
                         async_coach.submit(_hold_summary(exercise, result))
                         set_tracker.add_hold(result, t)
 
-                # 휴식(무동작) 감지 시 세트 자동 종료 → 종합 코칭
+                # 휴식(무동작) 감지 시 세트 자동 종료 → 종합 코칭 + 자동 인식
                 if set_tracker.should_auto_finish(t):
-                    _finalize_set(set_tracker, exercise, async_coach, "휴식 감지")
+                    exercise = _finalize_set(
+                        set_tracker, exercise, async_coach, recognizer,
+                        auto_switch=auto_on, reason="휴식 감지")
 
                 hold_s = exercise.hold_duration if exercise.mode == "hold" else None
                 display = overlay.render(
@@ -153,6 +182,7 @@ def main():
                     coaching=async_coach.latest,
                     busy=async_coach.busy,
                     set_index=set_tracker.set_index,
+                    auto_on=auto_on,
                 )
                 cv2.imshow(window, display)
 
@@ -161,18 +191,25 @@ def main():
                 break
             if key == ord(" ") and is_video:
                 paused = not paused
+            if key == ord("a"):
+                auto_on = not auto_on
+                print(f"운동 자동 인식: {'ON' if auto_on else 'OFF'}")
             if key == ord("s"):
-                _finalize_set(set_tracker, exercise, async_coach, "수동")
+                exercise = _finalize_set(
+                    set_tracker, exercise, async_coach, recognizer,
+                    auto_switch=auto_on, reason="수동")
             if key in _HOTKEYS:
                 name = _HOTKEYS[key]
                 if name != exercise.name:
-                    # 운동 전환 전 현재 세트 마감
-                    _finalize_set(set_tracker, exercise, async_coach, "운동 전환")
+                    # 사용자가 직접 고른 전환 → 자동 인식 끄고 현재 세트 마감
+                    _finalize_set(set_tracker, exercise, async_coach,
+                                  recognizer, auto_switch=False, reason="운동 전환")
                     exercise = registry.create(name)
                     print(f"운동 전환: {exercise.name_ko}")
     finally:
         # 종료 전 남은 세트 마감
-        _finalize_set(set_tracker, exercise, async_coach, "종료")
+        _finalize_set(set_tracker, exercise, async_coach, recognizer,
+                      auto_switch=False, reason="종료")
         print(f"종료: {exercise.name_ko}")
         async_coach.stop()
         estimator.close()
