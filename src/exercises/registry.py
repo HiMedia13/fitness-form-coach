@@ -3,6 +3,8 @@ from typing import Dict, List, Type
 
 from .base import Exercise
 from .deadlift import Deadlift
+from .lunge import Lunge
+from .overhead_press import OverheadPress
 from .plank import Plank
 from .pushup import Pushup
 from .squat import Squat
@@ -12,6 +14,8 @@ _REGISTRY: Dict[str, Type[Exercise]] = {
     Pushup.name: Pushup,
     Plank.name: Plank,
     Deadlift.name: Deadlift,
+    Lunge.name: Lunge,
+    OverheadPress.name: OverheadPress,
 }
 
 

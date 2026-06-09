@@ -7,7 +7,7 @@
     python main.py -e pushup --camera 1
 
 실행 중 키:
-    1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 로 전환
+    1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 / 5 런지 / 6 오버헤드프레스 로 전환
     q 또는 ESC : 종료
 """
 import argparse
@@ -23,7 +23,8 @@ from src.pose.estimator import PoseEstimator
 from src.ui.overlay import Overlay
 
 _HOTKEYS = {ord("1"): "squat", ord("2"): "pushup",
-            ord("3"): "plank", ord("4"): "deadlift"}
+            ord("3"): "plank", ord("4"): "deadlift",
+            ord("5"): "lunge", ord("6"): "overhead_press"}
 
 
 def _issues_payload(issues):
@@ -73,7 +74,8 @@ def main():
         return
 
     print(f"코칭 시작: {exercise.name_ko}  (모델: {config.COACH_MODEL})")
-    print("키: 1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 / q 종료")
+    print("키: 1 스쿼트 / 2 푸시업 / 3 플랭크 / 4 데드리프트 / "
+          "5 런지 / 6 오버헤드프레스 / q 종료")
 
     window = "FitCoach - 실시간 자세 코칭"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
