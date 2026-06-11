@@ -51,7 +51,10 @@ class ExerciseRecognizer:
         self._knee_min = float("inf")
         self._knee_max = float("-inf")
         self._knee_n = 0
-        self._knee_asym_max = 0.0
+        self._knee_asym_sum = 0.0     # 좌우 무릎 각도차 누적(평균용)
+        self._knee_asym_n = 0
+        self._ankle_stag_sum = 0.0    # 좌우 발목 수직(y) 간격 누적 = 앞뒤 스태거
+        self._ankle_stag_n = 0
         self._wrist_oh_n = 0
         self._wrist_n = 0
         self._hip_y_min = float("inf")
@@ -110,7 +113,12 @@ class ExerciseRecognizer:
             self._knee_max = max(self._knee_max, working)
             self._knee_n += 1
             if len(knees) == 2:
-                self._knee_asym_max = max(self._knee_asym_max, abs(knees[0] - knees[1]))
+                self._knee_asym_sum += abs(knees[0] - knees[1])
+                self._knee_asym_n += 1
+        # 발목 앞뒤 스태거: 좌우 발목의 수직(y) 간격 (런지의 지속적 특징)
+        if _vis(lm, L.LEFT_ANKLE, L.RIGHT_ANKLE):
+            self._ankle_stag_sum += abs(lm[L.LEFT_ANKLE][1] - lm[L.RIGHT_ANKLE][1])
+            self._ankle_stag_n += 1
 
     def predict(self) -> Tuple[Optional[str], float, Dict[str, float]]:
         """(운동명|None, 신뢰도 0~1, 점수표) 반환."""
@@ -123,7 +131,8 @@ class ExerciseRecognizer:
         hinge_rom = (self._torso_max - self._torso_min)
         hip_rom = (self._hip_y_max - self._hip_y_min)
         wrist_oh = (self._wrist_oh_n / self._wrist_n) if self._wrist_n else 0.0
-        knee_asym = self._knee_asym_max
+        knee_asym = (self._knee_asym_sum / self._knee_asym_n) if self._knee_asym_n else 0.0
+        ankle_stag = (self._ankle_stag_sum / self._ankle_stag_n) if self._ankle_stag_n else 0.0
 
         s = {"squat": 0.0, "pushup": 0.0, "plank": 0.0,
              "deadlift": 0.0, "lunge": 0.0, "overhead_press": 0.0}
@@ -152,12 +161,15 @@ class ExerciseRecognizer:
             s["squat"] += 1.0
             s["lunge"] += 0.8
             s["deadlift"] += 0.4
+            # 좌우 무릎이 대칭이면(평균 비대칭 작음) 스쿼트 가능성↑
+            if knee_asym < 15:
+                s["squat"] += 0.6
         else:
             s["plank"] += 0.3
             s["overhead_press"] += 0.3
 
-        # 5) 무릎 좌우 비대칭 → 런지
-        if knee_asym > 35:
+        # 5) 런지: 지속적 무릎 비대칭(평균) 또는 발 앞뒤 스태거
+        if knee_asym > 22 or ankle_stag > 0.12:
             s["lunge"] += 1.2
 
         # 6) 몸통 힌지(각도 변화 큼) + 선 자세 → 데드리프트

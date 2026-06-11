@@ -14,7 +14,12 @@ env/
 recordings/
 *.mp4
 *.avi
+*.webm
 out_*/
+
+# MediaPipe model bundles (auto-downloaded)
+models/
+*.task
 
 # OS / editor
 .DS_Store

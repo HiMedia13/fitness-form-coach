@@ -1,4 +1,5 @@
-mediapipe>=0.10.9
+# mediapipe 0.10.x Tasks API(PoseLandmarker) 사용. 최초 실행 시 모델 자동 다운로드.
+mediapipe>=0.10.14
 opencv-python>=4.8.0
 numpy>=1.24.0
 anthropic>=0.45.0

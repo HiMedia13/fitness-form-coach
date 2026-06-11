@@ -27,6 +27,8 @@ MediaPipe Pose ──► 관절 좌표(33점)
 ```
 
 - **로컬 처리**: `src/pose`, `src/exercises` — 각도/렙/룰 기반 이슈 감지
+  (MediaPipe **Tasks API**(`PoseLandmarker`) 사용. 최신 mediapipe는 레거시
+  `solutions` API를 제거했다. 모델 번들은 최초 실행 시 `models/` 에 자동 다운로드)
 - **LLM 코칭**: `src/coach` — `claude-opus-4-8` 기본, 프롬프트 캐싱 + structured output
 - **UI**: `src/ui/overlay.py` — 한글 텍스트(PIL) 렌더링
 
@@ -133,6 +135,18 @@ class Lunge(Exercise):
 ```
 
 그 뒤 `registry.py` 의 `_REGISTRY` 에 추가하면 끝입니다.
+
+## 헤드리스 테스트
+
+디스플레이 없이(서버/CI) 영상 파이프라인을 검증하려면:
+
+```bash
+python tools/test_headless.py <영상경로> [운동명]
+```
+
+포즈 인식률, 렙 카운팅, 운동 자동 인식, 세트 요약, 코칭을 콘솔로 출력합니다.
+실제 스쿼트 시연 영상으로 검증한 결과 213프레임 전부 포즈 인식, 렙 2회 정확 카운트,
+자동 인식 `squat`(신뢰도 0.67)으로 동작을 확인했습니다.
 
 ## 한계 / 참고
 
