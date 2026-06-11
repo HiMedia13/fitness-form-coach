@@ -79,6 +79,11 @@ class SetTracker:
     def has_data(self) -> bool:
         return bool(self._reps or self._holds)
 
+    @property
+    def reps(self) -> List[RepResult]:
+        """현재 세트의 렙 기록 스냅샷 (에이전트 코치 도구용)."""
+        return list(self._reps)
+
     def add_rep(self, result: RepResult, t: float) -> None:
         self._reps.append(result)
         self._last_active_t = t

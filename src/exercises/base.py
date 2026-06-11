@@ -30,6 +30,8 @@ class RepResult:
     depth: float                    # 주 측정값의 최저점(가동범위 깊이 지표)
     tempo_s: float                  # 렙 소요 시간(초)
     issues: List[FormIssue] = field(default_factory=list)
+    # 프레임별 (t, metrics) 궤적 — 에이전트 코치가 도구로 파고들 때 사용
+    trajectory: List = field(default_factory=list)
 
 
 @dataclass
@@ -61,6 +63,7 @@ class Exercise:
         self._phase = "up"          # "up" | "down"
         self._rep_start_t: Optional[float] = None
         self._rep_min = float("inf")
+        self._rep_frames: List = []  # 현재 렙의 (t, metrics) 궤적
         self._last_metrics: Dict[str, float] = {}
 
     # --- 하위 클래스가 구현 ---
@@ -87,8 +90,11 @@ class Exercise:
             self._phase = "down"
             self._rep_start_t = t
             self._rep_min = value
+            self._rep_frames = [(round(t, 3), metrics)]
         elif self._phase == "down":
             self._rep_min = min(self._rep_min, value)
+            if len(self._rep_frames) < 400:
+                self._rep_frames.append((round(t, 3), metrics))
             if value > self.up_threshold:
                 # 다 올라옴 → 렙 완료
                 self._phase = "up"
@@ -101,8 +107,10 @@ class Exercise:
                     depth=self._rep_min,
                     tempo_s=round(tempo, 2),
                     issues=issues,
+                    trajectory=self._rep_frames,
                 )
                 self._rep_min = float("inf")
+                self._rep_frames = []
         return result
 
     def reset_counts(self) -> None:
@@ -111,6 +119,7 @@ class Exercise:
         self._phase = "up"
         self._rep_start_t = None
         self._rep_min = float("inf")
+        self._rep_frames = []
 
     @property
     def last_metrics(self) -> Dict[str, float]:

@@ -14,7 +14,8 @@ from typing import Callable, Dict, Optional
 
 import config
 
-from .schema import SYSTEM_PROMPT, Coaching
+from .schema import AGENT_ADDENDUM, SYSTEM_PROMPT, Coaching
+from .tools import ALL_TOOLS, dispatch
 
 
 class RuleBasedCoach:
@@ -90,16 +91,115 @@ class ClaudeCoach:
         return response.parsed_output
 
 
+class AgentCoach:
+    """세트 심층 분석 에이전트. 도구로 렙 데이터를 파고든 뒤 코칭을 제출한다.
+
+    렙/유지 단위가 아니라 '세트 종료' 요약에만 쓴다(도구 왕복으로 지연·비용이 크므로).
+    summary 에는 직렬화하지 않는 '_records'(RepResult 리스트)가 들어 있고, 도구가
+    이를 조회한다.
+    """
+
+    MAX_TURNS = 6
+
+    def __init__(self, model: str, api_key: str) -> None:
+        import anthropic
+
+        self.model = model
+        self.client = anthropic.Anthropic(api_key=api_key)
+        # 시스템 = 기본 레퍼런스 + 에이전트 절차. 도구 목록과 함께 캐시 접두부로 고정.
+        self.system = [{
+            "type": "text",
+            "text": SYSTEM_PROMPT + AGENT_ADDENDUM,
+            "cache_control": {"type": "ephemeral"},
+        }]
+
+    def coach(self, summary: Dict) -> Coaching:
+        records = summary.pop("_records", []) or []
+        rep_map = {r.rep_index: r for r in records}
+        overview = {k: v for k, v in summary.items()}
+
+        messages = [{"role": "user", "content": (
+            "세트가 종료되었습니다. 아래 개요를 보고, 필요하면 도구로 각 렙의 관절 "
+            "각도와 궤적을 조사해 원인을 파악한 뒤 submit_coaching 으로 최종 코칭을 "
+            "제출하세요.\n개요:\n" + json.dumps(overview, ensure_ascii=False)
+        )}]
+
+        for _ in range(self.MAX_TURNS):
+            resp = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=self.system,
+                tools=ALL_TOOLS,
+                thinking={"type": "disabled"},
+                messages=messages,
+            )
+            if resp.stop_reason != "tool_use":
+                break
+            messages.append({"role": "assistant", "content": resp.content})
+
+            tool_results = []
+            for b in resp.content:
+                if b.type != "tool_use":
+                    continue
+                if b.name == "submit_coaching":
+                    try:
+                        return Coaching(**b.input)
+                    except Exception:
+                        pass  # 검증 실패 시 아래 폴백으로
+                else:
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": b.id,
+                        "content": dispatch(b.name, b.input, rep_map),
+                    })
+            if not tool_results:
+                break
+            messages.append({"role": "user", "content": tool_results})
+
+        # 도구 탐색은 했지만 submit 안 함 → 마지막으로 구조화 출력 강제
+        try:
+            final = self.client.messages.parse(
+                model=self.model,
+                max_tokens=512,
+                system=self.system,
+                thinking={"type": "disabled"},
+                messages=messages + [{"role": "user", "content":
+                                      "분석을 마쳤으면 최종 코칭을 제출하세요."}],
+                output_format=Coaching,
+            )
+            return final.parsed_output
+        except Exception as e:
+            print(f"[coach] 에이전트 최종 출력 실패 → 룰 기반 폴백: {e}")
+            return RuleBasedCoach().coach(overview)
+
+
+class CoachRouter:
+    """세트 종료는 심층 에이전트, 렙/유지는 빠른 단일 호출로 라우팅한다."""
+
+    def __init__(self, simple, agent=None) -> None:
+        self.simple = simple
+        self.agent = agent
+
+    def coach(self, summary: Dict) -> Coaching:
+        if summary.get("event") == "set" and self.agent is not None:
+            return self.agent.coach(summary)
+        summary.pop("_records", None)  # 단일 호출 경로엔 불필요
+        return self.simple.coach(summary)
+
+
 def build_coach():
-    """환경에 맞는 코치 인스턴스를 만든다."""
+    """환경에 맞는 코치(라우터)를 만든다."""
     if config.ANTHROPIC_API_KEY:
         try:
-            return ClaudeCoach(config.COACH_MODEL, config.ANTHROPIC_API_KEY)
+            simple = ClaudeCoach(config.COACH_MODEL, config.ANTHROPIC_API_KEY)
+            agent = AgentCoach(config.COACH_MODEL, config.ANTHROPIC_API_KEY)
+            print("[coach] Claude 코치 활성화 (세트=심층 에이전트, 렙=단일 호출)")
+            return CoachRouter(simple, agent)
         except Exception as e:  # 임포트/초기화 실패 시 폴백
             print(f"[coach] Claude 초기화 실패 → 룰 기반으로 폴백: {e}")
     else:
         print("[coach] ANTHROPIC_API_KEY 없음 → 룰 기반 코치 사용")
-    return RuleBasedCoach()
+    return CoachRouter(RuleBasedCoach(), None)
 
 
 class AsyncCoach:

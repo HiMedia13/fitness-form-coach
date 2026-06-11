@@ -64,6 +64,7 @@ def _finalize_set(set_tracker, exercise, async_coach, recognizer,
     세트 동안 누적한 포즈 특징으로 운동을 자동 인식해 요약에 첨부하고, auto_switch 면
     충분히 확신할 때 다음 세트용 운동으로 전환한다. (전환된) 운동 객체를 반환한다.
     """
+    reps = set_tracker.reps  # finish() 가 비우기 전에 렙 기록 스냅샷
     summary = set_tracker.finish(exercise.name)
     name, conf, _ = recognizer.predict()
     recognizer.reset()
@@ -73,6 +74,8 @@ def _finalize_set(set_tracker, exercise, async_coach, recognizer,
     if name:
         summary["detected_exercise"] = name
         summary["detection_confidence"] = round(conf, 2)
+    if reps:
+        summary["_records"] = reps  # 에이전트 도구가 파고들 원본 궤적
     async_coach.submit(summary)
     n = summary.get("total_reps", summary.get("total_holds", 0))
     tag = f" ({reason})" if reason else ""
